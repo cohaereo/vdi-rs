@@ -1,0 +1,14 @@
+[package]
+name = "ext4"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bytemuck = { version = "1.23.2", features = ["derive"] }
+positioned-io2 = "0.3.4"
+thiserror = "2.0"
+unix_path = "1.0.1"
+
+[[bin]]
+name = "ext4_reader"
+path = "src/main.rs"
