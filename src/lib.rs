@@ -61,14 +61,11 @@ impl VdiDisk {
         })
     }
 
-    pub fn slice(&mut self, range: std::ops::Range<u64>) -> slice::Slice<'_, Self> {
+    pub fn slice(&mut self, range: std::ops::Range<u64>) -> slice::Slice<'_> {
         slice::Slice::new(self, range)
     }
 
-    pub fn slice_owned(
-        self,
-        range: std::ops::Range<u64>,
-    ) -> std::io::Result<slice::OwnedSlice<Self>> {
+    pub fn slice_owned(self, range: std::ops::Range<u64>) -> std::io::Result<slice::OwnedSlice> {
         slice::OwnedSlice::new(self, range)
     }
 }
