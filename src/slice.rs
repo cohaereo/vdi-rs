@@ -3,6 +3,8 @@ use std::{
     io::{Read, Seek},
 };
 
+use positioned_io2::ReadAt;
+
 pub struct Slice<'a, R> {
     inner: RefCell<&'a mut R>,
     range: std::ops::Range<u64>,
@@ -73,5 +75,77 @@ impl<'a, R: Read + Seek> positioned_io2::ReadAt for Slice<'a, R> {
             .borrow_mut()
             .seek(std::io::SeekFrom::Start(self.range.start + pos))?;
         self.inner.borrow_mut().read(&mut buf[..read_len as usize])
+    }
+}
+
+pub struct OwnedSlice<R> {
+    inner: R,
+    range: std::ops::Range<u64>,
+    pos: u64,
+}
+
+impl<R: Read + Seek> OwnedSlice<R> {
+    pub fn new(mut inner: R, range: std::ops::Range<u64>) -> std::io::Result<Self> {
+        inner.seek(std::io::SeekFrom::Start(range.start))?;
+        Ok(Self {
+            inner,
+            range,
+            pos: 0,
+        })
+    }
+
+    pub fn into_inner(self) -> R {
+        self.inner
+    }
+}
+
+impl<R: Read + Seek> Read for OwnedSlice<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let read = self.inner.read(buf)?;
+        self.pos += read as u64;
+        Ok(read)
+    }
+}
+
+impl<R: Read + Seek> Seek for OwnedSlice<R> {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        let new_pos = match pos {
+            std::io::SeekFrom::Start(offset) => offset,
+            std::io::SeekFrom::End(offset) => {
+                if offset >= 0 {
+                    self.range.end + offset as u64
+                } else {
+                    self.range.end - (-offset) as u64
+                }
+            }
+            std::io::SeekFrom::Current(offset) => {
+                if offset >= 0 {
+                    self.pos + offset as u64
+                } else {
+                    self.pos - (-offset) as u64
+                }
+            }
+        };
+
+        if new_pos > self.range.end {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "seek out of bounds",
+            ));
+        }
+
+        self.inner
+            .seek(std::io::SeekFrom::Start(self.range.start + new_pos))?;
+        self.pos = new_pos;
+        Ok(self.pos)
+    }
+}
+
+impl<R: ReadAt> positioned_io2::ReadAt for OwnedSlice<R> {
+    fn read_at(&self, pos: u64, buf: &mut [u8]) -> std::io::Result<usize> {
+        if pos >= self.range.end - self.range.start {
+            return Ok(0);
+        }
+        self.inner.read_at(self.range.start + pos, buf)
     }
 }

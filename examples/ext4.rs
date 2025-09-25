@@ -1,3 +1,5 @@
+use std::io::Read;
+
 use ext4::Ext4Reader;
 use positioned_io2::ReadAt;
 use vdi::VdiDisk;
@@ -25,6 +27,11 @@ fn main() -> anyhow::Result<()> {
 
         traverse_directory(&ext4, unix_path::Path::new("/"), 0)?;
     }
+
+    let mut owned_slice = disk.slice_owned(0..4096)?;
+    let mut buf = vec![0; 4096];
+    owned_slice.read_exact(&mut buf)?;
+    println!("First {} bytes: {:02X?}", 4096, buf);
 
     Ok(())
 }

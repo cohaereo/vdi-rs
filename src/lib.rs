@@ -61,6 +61,13 @@ impl<R: Read + Seek> VdiDisk<R> {
     pub fn slice(&mut self, range: std::ops::Range<u64>) -> slice::Slice<'_, Self> {
         slice::Slice::new(self, range)
     }
+
+    pub fn slice_owned(
+        self,
+        range: std::ops::Range<u64>,
+    ) -> std::io::Result<slice::OwnedSlice<Self>> {
+        slice::OwnedSlice::new(self, range)
+    }
 }
 
 impl<R: Read + Seek> positioned_io2::ReadAt for VdiDisk<R> {
