@@ -3,7 +3,7 @@ members = ["ext4"]
 
 [package]
 name = "vdi"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 description = "Parser for the VirtualBox VDI disk image format"
 authors = ["cohaereo <cohae@cohae.dev>"]
