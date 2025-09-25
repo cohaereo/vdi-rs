@@ -1,7 +1,7 @@
 use crate::util::ReadAtExt;
 use bytemuck::{Pod, Zeroable};
 use positioned_io2::ReadAt;
-use std::io::Read;
+use std::io::{Read, Seek};
 use thiserror::Error;
 use unix_path::{Path, PathBuf};
 
@@ -156,7 +156,7 @@ impl Iterator for DirectoryIterator {
 }
 
 pub struct Ext4FileReader<'a, R: ReadAt> {
-    reader: &'a mut Ext4Reader<R>,
+    reader: &'a Ext4Reader<R>,
     inode: Inode,
     position: u64,
     size: u64,
@@ -185,6 +185,42 @@ impl<'a, R: ReadAt> Read for Ext4FileReader<'a, R> {
         self.position += bytes_read as u64;
 
         Ok(bytes_read)
+    }
+}
+
+impl<'a, R: ReadAt> Seek for Ext4FileReader<'a, R> {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        let new_pos = match pos {
+            std::io::SeekFrom::Start(offset) => offset,
+            std::io::SeekFrom::End(offset) => {
+                if offset >= 0 {
+                    self.size + offset as u64
+                } else {
+                    self.size.checked_sub((-offset) as u64).ok_or_else(|| {
+                        std::io::Error::new(std::io::ErrorKind::InvalidInput, "Seek before start")
+                    })?
+                }
+            }
+            std::io::SeekFrom::Current(offset) => {
+                if offset >= 0 {
+                    self.position + offset as u64
+                } else {
+                    self.position.checked_sub((-offset) as u64).ok_or_else(|| {
+                        std::io::Error::new(std::io::ErrorKind::InvalidInput, "Seek before start")
+                    })?
+                }
+            }
+        };
+
+        if new_pos > self.size {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Seek beyond end of file",
+            ));
+        }
+
+        self.position = new_pos;
+        Ok(self.position)
     }
 }
 
@@ -437,7 +473,7 @@ impl<R: ReadAt> Ext4Reader<R> {
         })
     }
 
-    pub fn open<P: AsRef<Path>>(&mut self, path: P) -> Result<Ext4FileReader<'_, R>> {
+    pub fn open<P: AsRef<Path>>(&self, path: P) -> Result<Ext4FileReader<'_, R>> {
         let path = path.as_ref();
         let inode_num = self.find_inode_by_path(path)?;
         let inode = self.read_inode(inode_num)?;
