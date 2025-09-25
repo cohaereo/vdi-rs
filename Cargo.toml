@@ -5,6 +5,13 @@ members = ["ext4"]
 name = "vdi"
 version = "0.1.0"
 edition = "2024"
+description = "Parser for the VirtualBox VDI disk image format"
+authors = ["cohaereo <cohae@cohae.dev>"]
+repository = "https://github.com/cohaereo/vdi-rs"
+license = "MIT"
+readme = "README.md"
+categories = ["filesystem", "data-structures", "virtualization"]
+include = ["src/**", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
 anyhow = "1"
