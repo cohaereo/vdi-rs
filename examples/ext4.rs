@@ -10,7 +10,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     let file = std::fs::File::open(&path)?;
-    let mut disk = VdiDisk::open(file)?;
+    let mut disk = VdiDisk::open(Box::new(file))?;
     println!("VDI header: {:X?}", disk.header);
 
     let partitions = bootsector::list_partitions(&mut disk, &bootsector::Options::default())?;

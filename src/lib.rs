@@ -1,8 +1,5 @@
 use positioned_io2::ReadAt;
-use std::{
-    io::{Read, Seek, Write},
-    sync::Mutex,
-};
+use std::io::{Read, Write};
 use util::ReaderExt;
 
 use crate::header::VdiHeader;
@@ -11,20 +8,19 @@ pub mod header;
 pub mod slice;
 mod util;
 
-#[derive(Debug)]
-pub struct VdiDisk<R: Read + Seek> {
+pub struct VdiDisk {
     pub header: header::VdiHeader,
     pub block_size: usize,
     /// Absolute file offsets of each block relative to the start of the vdi file
     pub block_offsets: Vec<Option<u64>>,
 
-    reader: Mutex<R>,
+    reader: Box<dyn ReadAt>,
     position: u64,
 }
 
-impl<R: Read + Seek> VdiDisk<R> {
-    pub fn open(mut reader: R) -> anyhow::Result<Self> {
-        let header = reader.read_pod::<header::VdiHeader>()?;
+impl VdiDisk {
+    pub fn open<R: ReadAt + 'static>(mut reader: Box<R>) -> anyhow::Result<Self> {
+        let header = reader.read_pod_at::<header::VdiHeader>(0)?;
         anyhow::ensure!(
             header.version == VdiHeader::VERSION,
             "Unsupported VDI version"
@@ -38,22 +34,29 @@ impl<R: Read + Seek> VdiDisk<R> {
             "Only dynamic VDI images are supported"
         );
 
-        let mut block_offsets = vec![None; header.blocks_in_image as usize];
-        reader.seek(std::io::SeekFrom::Start(header.block_offsets_offset as u64))?;
-        for offset in &mut block_offsets {
-            let loc = reader.read_pod::<u32>()?;
-            if loc == u32::MAX {
-                *offset = None;
-            } else {
-                *offset = Some(header.data_offset as u64 + loc as u64 * header.block_size as u64);
-            }
-        }
+        let mut block_offsets_raw = vec![0u8; header.blocks_in_image as usize * 4];
+        reader.read_exact_at(header.block_offsets_offset as u64, &mut block_offsets_raw)?;
+        let block_offsets: Vec<Option<u64>> = block_offsets_raw
+            .chunks_exact(4)
+            .map(|chunk| {
+                let loc = u32::from_le_bytes(
+                    chunk
+                        .try_into()
+                        .expect("unreachable: chunk is exactly 4 bytes"),
+                );
+                if loc == u32::MAX {
+                    None
+                } else {
+                    Some(header.data_offset as u64 + loc as u64 * header.block_size as u64)
+                }
+            })
+            .collect();
 
         Ok(Self {
             header,
             block_size: header.block_size as usize,
             block_offsets,
-            reader: Mutex::new(reader),
+            reader,
             position: 0,
         })
     }
@@ -70,7 +73,7 @@ impl<R: Read + Seek> VdiDisk<R> {
     }
 }
 
-impl<R: Read + Seek> positioned_io2::ReadAt for VdiDisk<R> {
+impl positioned_io2::ReadAt for VdiDisk {
     fn read_at(&self, mut pos: u64, buf: &mut [u8]) -> std::io::Result<usize> {
         let mut total_read = 0;
         while total_read < buf.len() {
@@ -83,9 +86,10 @@ impl<R: Read + Seek> positioned_io2::ReadAt for VdiDisk<R> {
             let to_read = std::cmp::min(buf.len() - total_read, self.block_size - block_offset);
 
             if let Some(file_offset) = self.block_offsets[block_index] {
-                let mut reader = self.reader.lock().unwrap();
-                reader.seek(std::io::SeekFrom::Start(file_offset + block_offset as u64))?;
-                let n = reader.read(&mut buf[total_read..total_read + to_read])?;
+                let n = self.reader.read_at(
+                    file_offset + block_offset as u64,
+                    &mut buf[total_read..total_read + to_read],
+                )?;
                 if n == 0 {
                     break; // EOF
                 }
@@ -102,7 +106,7 @@ impl<R: Read + Seek> positioned_io2::ReadAt for VdiDisk<R> {
     }
 }
 
-impl<R: Read + Seek> Read for VdiDisk<R> {
+impl Read for VdiDisk {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let n = self.read_at(self.position, buf)?;
         self.position += n as u64;
@@ -110,7 +114,7 @@ impl<R: Read + Seek> Read for VdiDisk<R> {
     }
 }
 
-impl<R: Read + Seek> Write for VdiDisk<R> {
+impl Write for VdiDisk {
     fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
         Err(std::io::Error::new(
             std::io::ErrorKind::Unsupported,
@@ -123,7 +127,7 @@ impl<R: Read + Seek> Write for VdiDisk<R> {
     }
 }
 
-impl<R: Read + Seek> std::io::Seek for VdiDisk<R> {
+impl std::io::Seek for VdiDisk {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
         let new_pos = match pos {
             std::io::SeekFrom::Start(offset) => offset,
