@@ -10,7 +10,7 @@ use std::io::{Read, Seek};
 use thiserror::Error;
 use unix_path::{Path, PathBuf};
 
-mod structs;
+pub mod structs;
 mod util;
 
 #[derive(Error, Debug)]
