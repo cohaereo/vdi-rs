@@ -31,6 +31,13 @@ pub enum Ext4Error {
 
 pub type Result<T> = std::result::Result<T, Ext4Error>;
 
+pub struct Metadata {
+    pub is_file: bool,
+    pub is_dir: bool,
+    pub size: u64,
+    pub mode: u16,
+}
+
 pub struct DirectoryIterator {
     entries: Vec<DirectoryEntry>,
     index: usize,
@@ -392,6 +399,23 @@ impl<R: ReadAt> Ext4Reader<R> {
 
     pub fn exists<P: AsRef<Path>>(&self, path: P) -> bool {
         self.find_inode_by_path(path).is_ok()
+    }
+
+    pub fn metadata<P: AsRef<Path>>(&self, path: P) -> Option<Metadata> {
+        let path = path.as_ref();
+        let inode_num = self.find_inode_by_path(path).ok()?;
+        let inode = self.read_inode(inode_num).ok()?;
+
+        let is_file = (inode.i_mode & 0xF000) == 0x8000;
+        let is_dir = (inode.i_mode & 0xF000) == 0x4000;
+        let size = ((inode.i_size_high as u64) << 32) | inode.i_size_lo as u64;
+
+        Some(Metadata {
+            is_file,
+            is_dir,
+            size,
+            mode: inode.i_mode,
+        })
     }
 
     fn find_inode_by_path<P: AsRef<Path>>(&self, path: P) -> Result<u32> {
