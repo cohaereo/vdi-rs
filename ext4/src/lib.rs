@@ -390,6 +390,10 @@ impl<R: ReadAt> Ext4Reader<R> {
         })
     }
 
+    pub fn exists<P: AsRef<Path>>(&self, path: P) -> bool {
+        self.find_inode_by_path(path).is_ok()
+    }
+
     fn find_inode_by_path<P: AsRef<Path>>(&self, path: P) -> Result<u32> {
         let path = path.as_ref();
         let path_str = path
