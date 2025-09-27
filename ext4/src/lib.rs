@@ -575,3 +575,6 @@ impl<R: ReadAt> Ext4Reader<R> {
         Ok(data)
     }
 }
+
+unsafe impl<R: Send + ReadAt> Send for Ext4Reader<R> {}
+unsafe impl<R: Sync + ReadAt> Sync for Ext4Reader<R> {}
