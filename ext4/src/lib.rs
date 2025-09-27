@@ -64,6 +64,12 @@ pub struct Ext4FileReader<'a, R: ReadAt> {
     size: u64,
 }
 
+impl<'a, R: ReadAt> Ext4FileReader<'a, R> {
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+}
+
 impl<'a, R: ReadAt> Read for Ext4FileReader<'a, R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         if self.position >= self.size {
@@ -221,8 +227,10 @@ impl<R: ReadAt> Ext4Reader<R> {
     }
 
     fn read_extent_blocks(&self, inode: &Inode) -> Result<Vec<u32>> {
-        let extent_data = &inode.i_block;
+        self.read_extent_blocks_recursive(&inode.i_block)
+    }
 
+    fn read_extent_blocks_recursive(&self, extent_data: &[u32]) -> Result<Vec<u32>> {
         let magic = extent_data[0] & 0xFFFF;
         let entries = (extent_data[0] >> 16) & 0xFFFF;
         let _max_entries = extent_data[1] & 0xFFFF;
@@ -235,6 +243,7 @@ impl<R: ReadAt> Ext4Reader<R> {
         let mut blocks = Vec::new();
 
         if depth == 0 {
+            // Leaf extents - direct references to data blocks
             for i in 0..entries {
                 let base_idx = (3 + i * 3) as usize;
                 if base_idx + 2 < extent_data.len() {
@@ -252,10 +261,29 @@ impl<R: ReadAt> Ext4Reader<R> {
                 }
             }
         } else {
-            // return Err(Ext4Error::UnsupportedFeature("multi-level extent trees"));
-            eprintln!(
-                "Warning: multi-level extent trees are not supported. Directories will be incomplete."
-            );
+            // Index extents - indirect references to other extent blocks
+            for i in 0..entries {
+                let base_idx = (3 + i * 3) as usize;
+                if base_idx + 2 < extent_data.len() {
+                    let _logical_block = extent_data[base_idx];
+                    let physical_block_lo = extent_data[base_idx + 1];
+                    let physical_block_hi = extent_data[base_idx + 2] & 0xFFFF;
+                    let physical_block =
+                        ((physical_block_hi as u64) << 32) | physical_block_lo as u64;
+
+                    let block_offset = physical_block * self.block_size;
+                    let mut block_data = vec![0u8; self.block_size as usize];
+                    self.reader.read_exact_at(block_offset, &mut block_data)?;
+
+                    let u32_data: Vec<u32> = block_data
+                        .chunks_exact(4)
+                        .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                        .collect();
+
+                    let mut sub_blocks = self.read_extent_blocks_recursive(&u32_data)?;
+                    blocks.append(&mut sub_blocks);
+                }
+            }
         }
 
         Ok(blocks)
